@@ -1,0 +1,671 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Petty Cash Ledger</title>
+
+<!--
+  PETTY CASH LEDGER — now backed by Supabase (an online database).
+
+  WHERE IS DATA SAVED NOW?  In your Supabase project, online.
+  That means the same data shows up on any device that opens this page.
+  (The old version saved to one browser on one computer only.)
+
+  SETUP: fill in SUPABASE_URL and SUPABASE_ANON_KEY in the script below,
+  and run the SQL you were given in your Supabase project once.
+-->
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Hanken+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+<style>
+  /* ---- Design tokens (colours, spacing) live here so they're easy to change ---- */
+  :root {
+    --paper:      #f4f3ee;
+    --surface:    #ffffff;
+    --ink:        #16201b;
+    --ink-soft:   #5d6b63;
+    --line:       #e3e1d8;
+    --green:      #0e6b52;   /* money IN + brand accent */
+    --green-bg:   #e7f1ec;
+    --red:        #b34234;   /* money OUT */
+    --red-bg:     #f7e8e5;
+    --shadow:     0 1px 2px rgba(22,32,27,.04), 0 8px 24px rgba(22,32,27,.06);
+    --radius:     14px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Hanken Grotesk', system-ui, sans-serif;
+    background: var(--paper);
+    color: var(--ink);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    padding: 32px 18px 80px;
+  }
+
+  .wrap { max-width: 880px; margin: 0 auto; }
+
+  /* tabular-nums keeps all the figures aligned in a neat column, like a real ledger */
+  .num { font-variant-numeric: tabular-nums; }
+
+  /* ---- Header ---- */
+  header { margin-bottom: 26px; }
+  header h1 {
+    font-family: 'Fraunces', Georgia, serif;
+    font-weight: 500;
+    font-size: clamp(28px, 5vw, 40px);
+    letter-spacing: -0.01em;
+  }
+  header p { color: var(--ink-soft); font-size: 15px; margin-top: 2px; }
+
+  /* ---- Summary cards ---- */
+  .summary {
+    display: grid;
+    grid-template-columns: 1.4fr 1fr 1fr;
+    gap: 14px;
+    margin-bottom: 26px;
+  }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 20px 22px;
+    box-shadow: var(--shadow);
+  }
+  .card .label {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--ink-soft);
+    font-weight: 600;
+  }
+  .card .value {
+    font-family: 'Fraunces', Georgia, serif;
+    font-weight: 500;
+    margin-top: 6px;
+    letter-spacing: -0.01em;
+  }
+  .card.balance { background: var(--ink); color: #f4f3ee; border-color: var(--ink); }
+  .card.balance .label { color: #9bb0a6; }
+  .card.balance .value { font-size: clamp(30px, 6vw, 44px); }
+  .card.in  .value { font-size: 24px; color: var(--green); }
+  .card.out .value { font-size: 24px; color: var(--red); }
+
+  /* ---- Generic section block ---- */
+  .block {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    margin-bottom: 22px;
+  }
+  .block h2 {
+    font-family: 'Fraunces', Georgia, serif;
+    font-weight: 500;
+    font-size: 19px;
+    padding: 18px 22px;
+    border-bottom: 1px solid var(--line);
+  }
+  .block .body { padding: 20px 22px; }
+
+  /* ---- Form ---- */
+  .row { display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-end; }
+  .field { display: flex; flex-direction: column; gap: 6px; }
+  .field.grow { flex: 1 1 220px; }
+  .field label {
+    font-size: 12.5px; font-weight: 600; color: var(--ink-soft);
+    text-transform: uppercase; letter-spacing: 0.05em;
+  }
+  input, select {
+    font: inherit;
+    padding: 11px 13px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: #fbfbf9;
+    color: var(--ink);
+    transition: border-color .15s, box-shadow .15s;
+  }
+  input:focus, select:focus {
+    outline: none;
+    border-color: var(--green);
+    box-shadow: 0 0 0 3px var(--green-bg);
+  }
+
+  /* In / Out toggle */
+  .toggle { display: flex; gap: 0; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .toggle button {
+    font: inherit; font-weight: 600; cursor: pointer;
+    padding: 11px 18px; border: none; background: #fbfbf9; color: var(--ink-soft);
+  }
+  .toggle button.active[data-type="in"]  { background: var(--green); color: #fff; }
+  .toggle button.active[data-type="out"] { background: var(--red);   color: #fff; }
+
+  .btn {
+    font: inherit; font-weight: 600; cursor: pointer;
+    padding: 11px 22px; border-radius: 10px; border: 1px solid var(--ink);
+    background: var(--ink); color: #f4f3ee;
+    transition: transform .08s, opacity .15s;
+  }
+  .btn:hover { opacity: .92; }
+  .btn:active { transform: translateY(1px); }
+  .btn:disabled { opacity: .55; cursor: progress; }
+  .btn.ghost { background: transparent; color: var(--ink); }
+  .btn.ghost:hover { background: var(--paper); }
+  .btn.small { padding: 8px 14px; font-size: 14px; }
+
+  .error { color: var(--red); font-size: 13.5px; margin-top: 12px; min-height: 1em; }
+
+  /* ---- Opening balance inline editor ---- */
+  .opening { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .opening label { font-size: 14px; color: var(--ink-soft); font-weight: 600; }
+  .opening input { width: 150px; }
+
+  /* ---- Table ---- */
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 13px 22px; border-bottom: 1px solid var(--line); font-size: 14.5px; }
+  th { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-soft); }
+  td.amt, th.amt { text-align: right; }
+  tr:last-child td { border-bottom: none; }
+  .pill {
+    display: inline-block; font-size: 12px; font-weight: 700;
+    padding: 2px 9px; border-radius: 999px;
+  }
+  .pill.in  { background: var(--green-bg); color: var(--green); }
+  .pill.out { background: var(--red-bg);  color: var(--red); }
+  .amt.in  { color: var(--green); font-weight: 600; }
+  .amt.out { color: var(--red);   font-weight: 600; }
+  .when { color: var(--ink-soft); white-space: nowrap; }
+  .del {
+    border: none; background: none; cursor: pointer; color: var(--ink-soft);
+    font-size: 18px; line-height: 1; padding: 4px 8px; border-radius: 8px;
+  }
+  .del:hover { background: var(--red-bg); color: var(--red); }
+
+  .empty { padding: 44px 22px; text-align: center; color: var(--ink-soft); }
+
+  .toolbar { display: flex; gap: 10px; padding: 16px 22px; border-top: 1px solid var(--line); flex-wrap: wrap; }
+
+  /* Small-screen tidy-up */
+  @media (max-width: 620px) {
+    .summary { grid-template-columns: 1fr; }
+    th.hide-sm, td.hide-sm { display: none; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <h1>Petty Cash Ledger</h1>
+    <p>Logs every payment in and out, with the time, and keeps a running balance.</p>
+  </header>
+
+  <!-- Summary cards: filled in by JavaScript -->
+  <section class="summary">
+    <div class="card balance">
+      <div class="label">Current Balance</div>
+      <div class="value num" id="balance">£0.00</div>
+    </div>
+    <div class="card in">
+      <div class="label">Total In</div>
+      <div class="value num" id="totalIn">£0.00</div>
+    </div>
+    <div class="card out">
+      <div class="label">Total Out</div>
+      <div class="value num" id="totalOut">£0.00</div>
+    </div>
+  </section>
+
+  <!-- Opening balance -->
+  <section class="block">
+    <div class="body opening">
+      <label for="opening">Opening float (starting balance)</label>
+      <input type="number" id="opening" class="num" step="0.01" min="0" placeholder="0.00">
+      <span style="font-size:13px;color:var(--ink-soft)">Set this once — it's the cash you started with.</span>
+    </div>
+  </section>
+
+  <!-- Add transaction form -->
+  <section class="block">
+    <h2>Add a transaction</h2>
+    <div class="body">
+      <div class="row">
+        <div class="field">
+          <label>Type</label>
+          <div class="toggle" id="typeToggle">
+            <button type="button" data-type="in" class="active">In</button>
+            <button type="button" data-type="out">Out</button>
+          </div>
+        </div>
+        <div class="field grow">
+          <label for="desc">Description</label>
+          <input type="text" id="desc" placeholder="e.g. Stationery, taxi, cash from bank…" maxlength="120">
+        </div>
+        <div class="field">
+          <label for="amount">Amount (£)</label>
+          <input type="number" id="amount" class="num" step="0.01" min="0" placeholder="0.00">
+        </div>
+        <div class="field">
+          <label for="when">Date &amp; time</label>
+          <input type="datetime-local" id="when">
+        </div>
+        <div class="field">
+          <label>&nbsp;</label>
+          <button class="btn" id="addBtn">Add entry</button>
+        </div>
+      </div>
+      <div class="error" id="error"></div>
+    </div>
+  </section>
+
+  <!-- Transaction log -->
+  <section class="block">
+    <h2>Transaction log</h2>
+    <div id="tableArea">
+      <!-- table or empty state injected here by JavaScript -->
+    </div>
+    <div class="toolbar">
+      <button class="btn ghost small" id="exportBtn">Export CSV (backup)</button>
+      <button class="btn ghost small" id="clearBtn" style="color:var(--red);border-color:var(--red)">Clear everything</button>
+    </div>
+  </section>
+
+</div>
+
+<!-- Supabase library (gives us `window.supabase.createClient`) -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+<script>
+"use strict";
+
+/* =========================================================================
+   0. SUPABASE CONNECTION  ← your central online database
+   -------------------------------------------------------------------------
+   Get these two values from your Supabase project:
+     Dashboard → Project Settings → API
+       • Project URL        → paste into SUPABASE_URL
+       • anon  public  key  → paste into SUPABASE_ANON_KEY
+
+   The anon key is SAFE to sit in this page — it is designed to be public.
+   What actually guards your data is Supabase "Row Level Security" (the SQL
+   you ran turns it on). For a private tool, add a login later — see notes.
+   ========================================================================= */
+const SUPABASE_URL      = "https://mrkgdketcgzvpghgkzkh.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1ya2dka2V0Y2d6dnBnaGdremtoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE5NTQyNDAsImV4cCI6MjA5NzUzMDI0MH0.WHA3VIYgwTSvWFloCEpTQoDLl-5DJwNj7FKgmX348EE";
+
+const { createClient } = window.supabase;          // from the CDN script above
+const db = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+// The opening balance lives in one fixed row of the "settings" table.
+const SETTINGS_ID = "singleton";
+
+/* =========================================================================
+   1. STORAGE LAYER
+   The ONLY part of the app that talks to Supabase. Everything else just
+   reads/writes the in-memory `state` object. Swap this layer → swap backend.
+   ========================================================================= */
+
+// The database column is "occurred_at" because "when" is a reserved SQL word.
+// We translate between the database shape and the app's shape right here.
+function rowToTransaction(row) {
+  return {
+    id:          row.id,
+    description: row.description,
+    amount:      Number(row.amount),   // numeric can arrive as text — force a number
+    type:        row.type,
+    when:        row.occurred_at
+  };
+}
+
+// Read everything once on startup.
+async function loadState() {
+  const [settingsRes, txRes] = await Promise.all([
+    db.from("settings").select("opening_balance").eq("id", SETTINGS_ID).maybeSingle(),
+    db.from("transactions").select("*")
+  ]);
+
+  if (settingsRes.error) throw settingsRes.error;
+  if (txRes.error)       throw txRes.error;
+
+  return {
+    openingBalance: Number(settingsRes.data?.opening_balance) || 0,
+    transactions:   (txRes.data || []).map(rowToTransaction)
+  };
+}
+
+async function insertTransaction(t) {
+  const { error } = await db.from("transactions").insert({
+    id:          t.id,
+    description: t.description,
+    amount:      t.amount,
+    type:        t.type,
+    occurred_at: t.when
+  });
+  if (error) throw error;
+}
+
+async function removeTransaction(id) {
+  const { error } = await db.from("transactions").delete().eq("id", id);
+  if (error) throw error;
+}
+
+async function saveOpeningBalance(value) {
+  // upsert = update the row if it exists, otherwise create it.
+  const { error } = await db.from("settings")
+    .upsert({ id: SETTINGS_ID, opening_balance: value });
+  if (error) throw error;
+}
+
+async function removeAllTransactions() {
+  // Supabase requires a filter on delete; neq "" matches every row.
+  const { error } = await db.from("transactions").delete().neq("id", "");
+  if (error) throw error;
+}
+
+/* =========================================================================
+   2. STATE
+   One object holds everything on screen. It starts empty and is filled in
+   by init() once Supabase has answered.
+   ========================================================================= */
+const state = { openingBalance: 0, transactions: [] };
+
+/* =========================================================================
+   3. PURE CALCULATIONS
+   These functions just take numbers in and give numbers out — no side
+   effects, easy to reason about and test.
+   ========================================================================= */
+function sumByType(transactions, type) {
+  return transactions
+    .filter(t => t.type === type)
+    .reduce((total, t) => total + t.amount, 0);
+}
+
+function currentBalance(state) {
+  return state.openingBalance + sumByType(state.transactions, "in") - sumByType(state.transactions, "out");
+}
+
+// Returns transactions sorted oldest→newest, each tagged with the running balance at that point.
+function withRunningBalance(state) {
+  const chronological = [...state.transactions].sort(
+    (a, b) => new Date(a.when) - new Date(b.when)
+  );
+  let running = state.openingBalance;
+  return chronological.map(t => {
+    running += t.type === "in" ? t.amount : -t.amount;
+    return { ...t, running };
+  });
+}
+
+/* =========================================================================
+   4. FORMATTERS
+   ========================================================================= */
+const gbp = new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP" });
+
+function formatWhen(isoString) {
+  const d = new Date(isoString);
+  return d.toLocaleString("en-GB", {
+    day: "2-digit", month: "short", year: "numeric",
+    hour: "2-digit", minute: "2-digit"
+  });
+}
+
+/* =========================================================================
+   5. RENDERING
+   Reads from state and updates the screen. Called after every change.
+   ========================================================================= */
+const els = {
+  balance:  document.getElementById("balance"),
+  totalIn:  document.getElementById("totalIn"),
+  totalOut: document.getElementById("totalOut"),
+  opening:  document.getElementById("opening"),
+  tableArea: document.getElementById("tableArea"),
+  error:    document.getElementById("error"),
+  desc:     document.getElementById("desc"),
+  amount:   document.getElementById("amount"),
+  when:     document.getElementById("when")
+};
+
+function render() {
+  els.balance.textContent  = gbp.format(currentBalance(state));
+  els.totalIn.textContent  = gbp.format(sumByType(state.transactions, "in"));
+  els.totalOut.textContent = gbp.format(sumByType(state.transactions, "out"));
+  renderTable();
+}
+
+function renderTable() {
+  const rows = withRunningBalance(state).reverse(); // newest first for display
+
+  if (rows.length === 0) {
+    els.tableArea.innerHTML =
+      '<div class="empty">No transactions yet. Add your first entry above ☝️</div>';
+    return;
+  }
+
+  const bodyRows = rows.map(t => `
+    <tr>
+      <td class="when hide-sm">${formatWhen(t.when)}</td>
+      <td>${escapeHtml(t.description)}</td>
+      <td><span class="pill ${t.type}">${t.type === "in" ? "In" : "Out"}</span></td>
+      <td class="amt num ${t.type}">${t.type === "in" ? "+" : "−"}${gbp.format(t.amount)}</td>
+      <td class="amt num hide-sm">${gbp.format(t.running)}</td>
+      <td class="amt"><button class="del" title="Delete" data-id="${t.id}">×</button></td>
+    </tr>
+  `).join("");
+
+  els.tableArea.innerHTML = `
+    <table>
+      <thead>
+        <tr>
+          <th class="hide-sm">Date &amp; time</th>
+          <th>Description</th>
+          <th>Type</th>
+          <th class="amt">Amount</th>
+          <th class="amt hide-sm">Balance</th>
+          <th class="amt"></th>
+        </tr>
+      </thead>
+      <tbody>${bodyRows}</tbody>
+    </table>`;
+}
+
+// Stops any odd characters in a description from breaking the page layout.
+function escapeHtml(str) {
+  const div = document.createElement("div");
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+/* =========================================================================
+   6. ACTIONS
+   Each one saves to Supabase FIRST, and only updates the screen if that
+   succeeded. If the network fails, the screen and the database stay in sync.
+   ========================================================================= */
+let selectedType = "in";
+
+// Disable the Add button (and show "Saving…") while a save is in flight.
+function setBusy(isBusy) {
+  const btn = document.getElementById("addBtn");
+  btn.disabled = isBusy;
+  btn.textContent = isBusy ? "Saving…" : "Add entry";
+}
+
+async function addTransaction() {
+  const description = els.desc.value.trim();
+  const amount = parseFloat(els.amount.value);
+  const when = els.when.value;
+
+  // Validation — never trust the input
+  if (!description) return showError("Please enter a description.");
+  if (isNaN(amount) || amount <= 0) return showError("Please enter an amount greater than zero.");
+  if (!when) return showError("Please choose a date and time.");
+
+  const newTx = {
+    id: Date.now().toString() + Math.random().toString(36).slice(2, 6),
+    description,
+    amount: Math.round(amount * 100) / 100, // tidy to 2 decimals
+    type: selectedType,
+    when: new Date(when).toISOString()
+  };
+
+  showError("");
+  setBusy(true);
+  try {
+    await insertTransaction(newTx);     // 1) save online
+    state.transactions.push(newTx);     // 2) update memory
+    render();                           // 3) update screen
+
+    // Reset the form for the next entry (keep the In/Out choice as-is)
+    els.desc.value = "";
+    els.amount.value = "";
+    setNowAsDefaultTime();
+    els.desc.focus();
+  } catch (err) {
+    console.error("Add failed:", err);
+    showError("Couldn't save — check your internet and try again.");
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function deleteTransaction(id) {
+  const item = state.transactions.find(t => t.id === id);
+  if (!item) return;
+  if (!confirm(`Delete "${item.description}" (${gbp.format(item.amount)})?`)) return;
+
+  try {
+    await removeTransaction(id);
+    state.transactions = state.transactions.filter(t => t.id !== id);
+    render();
+  } catch (err) {
+    console.error("Delete failed:", err);
+    showError("Couldn't delete — check your internet and try again.");
+  }
+}
+
+async function setOpeningBalance(value) {
+  const num = parseFloat(value);
+  const clean = isNaN(num) ? 0 : Math.round(num * 100) / 100;
+  try {
+    await saveOpeningBalance(clean);
+    state.openingBalance = clean;
+    render();
+  } catch (err) {
+    console.error("Opening balance save failed:", err);
+    showError("Couldn't save the opening balance — try again.");
+  }
+}
+
+async function clearEverything() {
+  if (!confirm("This deletes ALL transactions and resets the opening balance. This cannot be undone. Continue?")) return;
+  try {
+    await removeAllTransactions();
+    await saveOpeningBalance(0);
+    state.openingBalance = 0;
+    state.transactions = [];
+    els.opening.value = "";
+    render();
+  } catch (err) {
+    console.error("Clear failed:", err);
+    showError("Couldn't clear the data — try again.");
+  }
+}
+
+function showError(message) {
+  els.error.textContent = message;
+}
+
+/* =========================================================================
+   7. CSV EXPORT  — your backup. Opens cleanly in Excel / Sage.
+   ========================================================================= */
+function exportCsv() {
+  const rows = withRunningBalance(state);
+  const header = ["Date/Time", "Description", "Type", "Amount", "Running Balance"];
+
+  const lines = rows.map(t => [
+    formatWhen(t.when),
+    t.description,
+    t.type === "in" ? "In" : "Out",
+    (t.type === "in" ? "" : "-") + t.amount.toFixed(2),
+    t.running.toFixed(2)
+  ].map(csvCell).join(","));
+
+  const csv = [header.join(","), ...lines].join("\r\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `petty-cash-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// Wraps a value in quotes if it contains commas/quotes/newlines (proper CSV escaping).
+function csvCell(value) {
+  const s = String(value);
+  return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+
+/* =========================================================================
+   8. WIRING UP THE BUTTONS & INPUTS
+   ========================================================================= */
+function setNowAsDefaultTime() {
+  const now = new Date();
+  now.setMinutes(now.getMinutes() - now.getTimezoneOffset()); // adjust to local time
+  els.when.value = now.toISOString().slice(0, 16); // format: YYYY-MM-DDTHH:MM
+}
+
+document.getElementById("typeToggle").addEventListener("click", e => {
+  const btn = e.target.closest("button");
+  if (!btn) return;
+  selectedType = btn.dataset.type;
+  document.querySelectorAll("#typeToggle button").forEach(b =>
+    b.classList.toggle("active", b === btn)
+  );
+});
+
+document.getElementById("addBtn").addEventListener("click", addTransaction);
+
+// Pressing Enter in the amount or description box also adds the entry
+[els.desc, els.amount].forEach(input =>
+  input.addEventListener("keydown", e => { if (e.key === "Enter") addTransaction(); })
+);
+
+// Use event delegation: one listener on the table area handles all delete buttons
+els.tableArea.addEventListener("click", e => {
+  const btn = e.target.closest(".del");
+  if (btn) deleteTransaction(btn.dataset.id);
+});
+
+els.opening.addEventListener("change", e => setOpeningBalance(e.target.value));
+document.getElementById("exportBtn").addEventListener("click", exportCsv);
+document.getElementById("clearBtn").addEventListener("click", clearEverything);
+
+/* =========================================================================
+   9. STARTUP  — load everything from Supabase, then show it.
+   ========================================================================= */
+async function init() {
+  setNowAsDefaultTime();
+  els.tableArea.innerHTML = '<div class="empty">Loading…</div>';
+
+  try {
+    const loaded = await loadState();
+    state.openingBalance = loaded.openingBalance;
+    state.transactions = loaded.transactions;
+    els.opening.value = state.openingBalance ? state.openingBalance.toFixed(2) : "";
+    render();
+  } catch (err) {
+    console.error("Load failed:", err);
+    els.tableArea.innerHTML =
+      '<div class="empty">Couldn\'t load your data. Double-check the Supabase URL/key and your internet, then refresh.</div>';
+  }
+}
+
+init();
+</script>
+</body>
+</html>
